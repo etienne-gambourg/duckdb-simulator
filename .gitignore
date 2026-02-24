@@ -38,6 +38,3 @@ venv.bak/
 # Pytest
 .pytest_cache/
 .coverage
-
-# uv
-uv.lock
