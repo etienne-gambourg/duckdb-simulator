@@ -1,8 +1,7 @@
+from duckdb_simulator.seeder import DuckdbSQLSeeder
+from  duckdb_simulator.executor import DuckdbSQLExecutor, QueryTranslationError, QueryExecutionError
+from  duckdb_simulator.models import Dialect
 import pytest
-import pandas as pd
-from duckdb_executor.seeder import DuckdbSQLSeeder
-from duckdb_executor.executor import DuckdbSQLExecutor
-from duckdb_executor.models import Dialect
 
 @pytest.fixture
 def mock_seeder():
@@ -34,11 +33,16 @@ def test_executor_tsql_translation(mock_seeder):
 
 def test_executor_invalid_query(mock_seeder):
     executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
-    with pytest.raises(Exception):
+    with pytest.raises(QueryExecutionError, match="nonexistent_table"):
         executor.query_to_df("SELECT * FROM nonexistent_table")
 
+def test_executor_invalid_sql_syntax(mock_seeder):
+    executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
+    with pytest.raises(QueryTranslationError):
+        executor.query_to_df("SELECT FROM WHERE")
+
 def test_executor_protocol_compliance(mock_seeder):
-    from duckdb_executor.protocols import SQLExecutor
+    from duckdb_simulator.protocols import SQLExecutor
     executor = DuckdbSQLExecutor(dialect=Dialect.TSQL, seeder=mock_seeder)
     
     # Verify it matches the protocol structurally using isinstance
@@ -86,3 +90,12 @@ def test_executor_window_function_query(mock_seeder):
     # Charlie (Marketing) has 70k so rank 1 in dept 2
     assert list(df['dept_rank']) == [2, 1, 1]
 
+def test_executor_exception_chaining(mock_seeder):
+    """Test that exceptions maintain their chain with 'from e'."""
+    executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
+    
+    with pytest.raises(QueryExecutionError) as exc_info:
+        executor.query_to_df("SELECT * FROM nonexistent")
+    
+    # Verify exception chaining
+    assert exc_info.value.__cause__ is not None
