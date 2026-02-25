@@ -26,7 +26,7 @@ uv sync --all-extras
 You can seed your DuckDB instance with local mock data using python dictionaries or a JSON file.
 
 ```python
-from duckdb_executor import DuckdbSQLSeeder, DuckdbSQLExecutor, Dialect
+from duckdb_simulator import DuckdbSQLSeeder, DuckdbSQLExecutor, Dialect
 
 # 1. Define your mock data
 mock_data = {
