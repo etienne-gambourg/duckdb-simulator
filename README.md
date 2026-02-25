@@ -1,6 +1,14 @@
-# DuckDB SQL Simulator for Dataiku
+# DuckDB SQL Simulator
 
-This repository simulates the behavior of Dataiku's `SQLExecutor2.query_to_df(query)` for local testing. It translates syntax from multiple SQL dialects into DuckDB SQL via `sqlglot`, dynamically seeds test data into DuckDB from Python dictionaries or JSON configuration files, and fetches the execution results as standard `pandas` DataFrames.
+A lightweight local SQL executor that returns pandas DataFrames. This tool enables testing of SQL queries across multiple dialects (T-SQL, PostgreSQL, BigQuery, etc.) by translating them to DuckDB via `sqlglot`. Perfect for local development and testing without needing a database connection.
+
+## Features
+
+- 🔄 **Multi-dialect support** - T-SQL, PostgreSQL, MySQL, BigQuery, Snowflake, and more
+- 🛡️ **SQL injection protection** - Validated table names
+- 📊 **Pandas output** - Returns standard pandas DataFrames
+- 🧪 **Flexible mocking** - Seed from Python dicts or JSON files
+- ⚡ **Fast execution** - Powered by DuckDB in-memory engine
 
 ## Setup
 
