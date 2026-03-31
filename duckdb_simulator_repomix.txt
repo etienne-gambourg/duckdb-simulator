@@ -1,0 +1,1254 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.github/
+  workflows/
+    ci.yml
+src/
+  duckdb_executor/
+    __init__.py
+    executor.py
+    fixtures.py
+    models.py
+    protocols.py
+    pytest_plugin.py
+    seeder.py
+    testing.py
+tests/
+  conftest.py
+  test_executor.py
+  test_seeder.py
+  test_testing_toolkit.py
+.gitignore
+.python-version
+example.py
+main.py
+pyproject.toml
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/duckdb_executor/fixtures.py">
+"""
+duckdb_executor.fixtures
+------------------------
+Pre-built generic seed datasets for common testing scenarios.
+Import and pass directly to DuckdbSQLSeeder or FixtureBuilder.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+# ---------------------------------------------------------------------------
+# Generic orders dataset
+# ---------------------------------------------------------------------------
+
+ORDERS: dict[str, list[dict[str, Any]]] = {
+    "orders": [
+        {"id": 1, "country": "FR", "product": "Widget", "amount": 120.0, "quantity": 2},
+        {"id": 2, "country": "FR", "product": "Gadget", "amount": 80.0, "quantity": 1},
+        {"id": 3, "country": "US", "product": "Widget", "amount": 200.0, "quantity": 4},
+        {
+            "id": 4,
+            "country": "US",
+            "product": "Doohickey",
+            "amount": 150.0,
+            "quantity": 3,
+        },
+        {"id": 5, "country": "FR", "product": "Widget", "amount": 60.0, "quantity": 1},
+        {"id": 6, "country": "US", "product": "Gadget", "amount": 300.0, "quantity": 5},
+        {"id": 7, "country": "DE", "product": "Gadget", "amount": 90.0, "quantity": 2},
+        {
+            "id": 8,
+            "country": "DE",
+            "product": "Doohickey",
+            "amount": 110.0,
+            "quantity": 2,
+        },
+        {
+            "id": 9,
+            "country": "FR",
+            "product": "Doohickey",
+            "amount": 45.0,
+            "quantity": 1,
+        },
+        {
+            "id": 10,
+            "country": "US",
+            "product": "Widget",
+            "amount": 180.0,
+            "quantity": 3,
+        },
+    ]
+}
+
+# Known aggregates for assertions:
+# revenue FR  = 120 + 80 + 60 + 45 = 305.0
+# revenue US  = 200 + 150 + 300 + 180 = 830.0
+# revenue DE  = 90 + 110 = 200.0
+# order_count FR = 4, US = 4, DE = 2
+# avg_basket FR  = 305 / 4 = 76.25, US = 830 / 4 = 207.5, DE = 200 / 2 = 100.0
+
+# ---------------------------------------------------------------------------
+# Generic products dataset
+# ---------------------------------------------------------------------------
+
+PRODUCTS: dict[str, list[dict[str, Any]]] = {
+    "products": [
+        {"id": 1, "name": "Widget", "category": "hardware", "price": 49.99},
+        {"id": 2, "name": "Gadget", "category": "hardware", "price": 79.99},
+        {"id": 3, "name": "Doohickey", "category": "software", "price": 29.99},
+        {"id": 4, "name": "Thingamajig", "category": "software", "price": 19.99},
+    ]
+}
+
+# ---------------------------------------------------------------------------
+# Generic users dataset
+# ---------------------------------------------------------------------------
+
+USERS: dict[str, list[dict[str, Any]]] = {
+    "users": [
+        {"id": 1, "country": "FR", "segment": "premium", "active": True},
+        {"id": 2, "country": "FR", "segment": "standard", "active": True},
+        {"id": 3, "country": "US", "segment": "premium", "active": True},
+        {"id": 4, "country": "US", "segment": "standard", "active": False},
+        {"id": 5, "country": "DE", "segment": "premium", "active": True},
+        {"id": 6, "country": "DE", "segment": "standard", "active": True},
+    ]
+}
+
+# ---------------------------------------------------------------------------
+# Combined: orders + products + users (for join scenarios)
+# ---------------------------------------------------------------------------
+
+FULL: dict[str, list[dict[str, Any]]] = {
+    **ORDERS,
+    **PRODUCTS,
+    **USERS,
+}
+</file>
+
+<file path="src/duckdb_executor/pytest_plugin.py">
+"""
+duckdb_executor.pytest_plugin
+-----------------------------
+Ready-made pytest fixtures. Register in conftest.py:
+
+    from duckdb_executor.pytest_plugin import *  # noqa: F401, F403
+
+Or selectively:
+
+    from duckdb_executor.pytest_plugin import orders_executor
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from .executor import DuckdbSQLExecutor
+from .fixtures import FULL, ORDERS, PRODUCTS, USERS
+from .models import Dialect
+from .seeder import DuckdbSQLSeeder
+
+
+@pytest.fixture
+def orders_executor() -> DuckdbSQLExecutor:
+    """DuckDB executor pre-seeded with the generic orders table."""
+    seeder = DuckdbSQLSeeder(ORDERS)
+    return DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+
+
+@pytest.fixture
+def products_executor() -> DuckdbSQLExecutor:
+    """DuckDB executor pre-seeded with the generic products table."""
+    seeder = DuckdbSQLSeeder(PRODUCTS)
+    return DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+
+
+@pytest.fixture
+def users_executor() -> DuckdbSQLExecutor:
+    """DuckDB executor pre-seeded with the generic users table."""
+    seeder = DuckdbSQLSeeder(USERS)
+    return DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+
+
+@pytest.fixture
+def full_executor() -> DuckdbSQLExecutor:
+    """DuckDB executor pre-seeded with orders + products + users tables."""
+    seeder = DuckdbSQLSeeder(FULL)
+    return DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+
+
+@pytest.fixture
+def blank_executor() -> DuckdbSQLExecutor:
+    """DuckDB executor with no tables — seed it yourself via FixtureBuilder."""
+    seeder = DuckdbSQLSeeder({"_empty": [{"_": 1}]})
+    return DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+</file>
+
+<file path="src/duckdb_executor/testing.py">
+"""
+duckdb_executor.testing
+-----------------------
+Fluent test-data builder and DataFrame assertion helpers.
+Usable in any project that tests against a SQLExecutor-compatible backend.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pandas as pd
+
+from .seeder import DuckdbSQLSeeder
+
+# ---------------------------------------------------------------------------
+# FixtureBuilder — fluent API for building seed data in-memory
+# ---------------------------------------------------------------------------
+
+
+class _TableBuilder:
+    """Intermediate builder returned by FixtureBuilder.table()."""
+
+    def __init__(self, parent: FixtureBuilder, name: str) -> None:
+        self._parent = parent
+        self._name = name
+        self._rows: list[dict[str, Any]] = []
+
+    def row(self, **kwargs: Any) -> _TableBuilder:
+        """Append a row to the current table."""
+        self._rows.append(kwargs)
+        return self
+
+    def table(self, name: str) -> _TableBuilder:
+        """Start a new table (delegates to parent)."""
+        self._flush()
+        return self._parent.table(name)
+
+    def build(self) -> DuckdbSQLSeeder:
+        """Flush the current table and return a seeded DuckdbSQLSeeder."""
+        self._flush()
+        return self._parent.build()
+
+    def _flush(self) -> None:
+        self._parent._data[self._name] = self._rows
+
+
+class FixtureBuilder:
+    """Fluent builder for DuckdbSQLSeeder seed data.
+
+    Example::
+
+        seeder = (
+            FixtureBuilder()
+            .table("orders")
+              .row(id=1, country="FR", amount=120.0)
+              .row(id=2, country="US", amount=200.0)
+            .table("products")
+              .row(id=1, name="Widget", price=9.99)
+            .build()
+        )
+    """
+
+    def __init__(self) -> None:
+        self._data: dict[str, list[dict[str, Any]]] = {}
+        self._current: _TableBuilder | None = None
+
+    def table(self, name: str) -> _TableBuilder:
+        """Start defining a table. Returns a _TableBuilder for chaining .row() calls."""
+        if self._current is not None:
+            self._current._flush()
+        self._current = _TableBuilder(self, name)
+        return self._current
+
+    def build(self) -> DuckdbSQLSeeder:
+        """Return a DuckdbSQLSeeder seeded with all defined tables."""
+        if self._current is not None:
+            self._current._flush()
+        if not self._data:
+            raise ValueError("FixtureBuilder: no tables defined. Call .table() first.")
+        return DuckdbSQLSeeder(self._data)
+
+
+# ---------------------------------------------------------------------------
+# DataFrame assertion helpers
+# ---------------------------------------------------------------------------
+
+
+def assert_scalar(
+    df: pd.DataFrame,
+    *,
+    kpi_name: str,
+    expected: float | int | str,
+    approx: bool = True,
+    tolerance: float = 1e-6,
+    **param_filters: Any,
+) -> None:
+    """Assert that a KPI row in ``df`` has the expected scalar value.
+
+    Args:
+        df:           DataFrame produced by MetricQueryBuilder.compose().
+        kpi_name:     The ``kpi_name`` column value to filter on.
+        expected:     The expected value.
+        approx:       If True (default), use approximate float comparison.
+        tolerance:    Relative tolerance for approx comparison.
+        **param_filters: Additional column filters (e.g. ``country="FR"``).
+
+    Raises:
+        AssertionError: If no row matches or the value is wrong.
+    """
+    mask = df["kpi_name"] == kpi_name
+    for col, val in param_filters.items():
+        if col not in df.columns:
+            raise AssertionError(
+                f"Column {col!r} not in DataFrame. Got: {list(df.columns)}"
+            )
+        mask = mask & (df[col] == val)
+
+    rows = df[mask]
+    if rows.empty:
+        filters = {"kpi_name": kpi_name, **param_filters}
+        raise AssertionError(f"No rows found for filters {filters}. DataFrame:\n{df}")
+    if len(rows) > 1:
+        raise AssertionError(
+            f"Multiple rows found for filters — be more specific:\n{rows}"
+        )
+
+    actual = rows.iloc[0]["value"]
+    if approx and isinstance(expected, float):
+        if abs(actual - expected) > tolerance * max(abs(expected), 1):
+            raise AssertionError(
+                f"Expected {expected} ≈ actual {actual} (tol={tolerance})"
+            )
+    else:
+        assert actual == expected, f"Expected {expected!r}, got {actual!r}"
+
+
+def assert_shape(
+    df: pd.DataFrame,
+    *,
+    n_kpis: int,
+    n_param_combos: int,
+) -> None:
+    """Assert the DataFrame has the expected number of rows (n_kpis × n_param_combos).
+
+    Args:
+        df:             DataFrame produced by MetricQueryBuilder.compose().
+        n_kpis:         Number of distinct KPIs expected.
+        n_param_combos: Number of distinct parameter combinations expected.
+    """
+    expected_rows = n_kpis * n_param_combos
+    actual_rows = len(df)
+    assert actual_rows == expected_rows, (
+        f"Expected {n_kpis} KPIs × {n_param_combos} combos = {expected_rows} rows, "
+        f"got {actual_rows}."
+    )
+    assert (
+        "kpi_name" in df.columns
+    ), f"Missing 'kpi_name' column. Got: {list(df.columns)}"
+    assert "value" in df.columns, f"Missing 'value' column. Got: {list(df.columns)}"
+    assert (
+        "value_type" in df.columns
+    ), f"Missing 'value_type' column. Got: {list(df.columns)}"
+
+
+def assert_value_types(df: pd.DataFrame, expected_type: str) -> None:
+    """Assert that all rows in ``df`` have the given ``value_type``.
+
+    Args:
+        df:            DataFrame produced by MetricQueryBuilder.compose().
+        expected_type: One of ``"int"``, ``"float"``, ``"str"``.
+    """
+    bad = df[df["value_type"] != expected_type]
+    assert bad.empty, (
+        f"Expected all rows to have value_type={expected_type!r}. "
+        f"Found unexpected:\n{bad}"
+    )
+</file>
+
+<file path="tests/conftest.py">
+from duckdb_executor.pytest_plugin import (
+    full_executor,
+    orders_executor,
+    products_executor,
+    users_executor,
+    blank_executor,
+)
+
+__all__ = [
+    "full_executor",
+    "orders_executor",
+    "products_executor",
+    "users_executor",
+    "blank_executor",
+]
+</file>
+
+<file path="tests/test_testing_toolkit.py">
+"""Tests for the duckdb_executor testing toolkit."""
+
+from __future__ import annotations
+
+import pytest
+
+from duckdb_executor import (
+    DuckdbSQLExecutor,
+    DuckdbSQLSeeder,
+    Dialect,
+    FixtureBuilder,
+    assert_scalar,
+    assert_shape,
+    assert_value_types,
+    fixtures,
+)
+
+# ---------------------------------------------------------------------------
+# FixtureBuilder
+# ---------------------------------------------------------------------------
+
+
+def test_fixture_builder_single_table():
+    seeder = (
+        FixtureBuilder()
+        .table("orders")
+        .row(id=1, country="FR", amount=100.0)
+        .row(id=2, country="US", amount=200.0)
+        .build()
+    )
+    executor = DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+    df = executor.query_to_df("SELECT COUNT(*) AS n FROM orders")
+    assert df.iloc[0]["n"] == 2
+
+
+def test_fixture_builder_multiple_tables():
+    seeder = (
+        FixtureBuilder()
+        .table("orders")
+        .row(id=1, amount=50.0)
+        .table("products")
+        .row(id=1, name="Widget")
+        .build()
+    )
+    executor = DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+    assert executor.query_to_df("SELECT COUNT(*) AS n FROM orders").iloc[0]["n"] == 1
+    assert executor.query_to_df("SELECT COUNT(*) AS n FROM products").iloc[0]["n"] == 1
+
+
+def test_fixture_builder_empty_raises():
+    with pytest.raises(ValueError, match="no tables defined"):
+        FixtureBuilder().build()
+
+
+def test_fixture_builder_data_integrity():
+    seeder = FixtureBuilder().table("users").row(id=1, country="FR", score=9.5).build()
+    executor = DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+    df = executor.query_to_df("SELECT score FROM users WHERE country = 'FR'")
+    assert df.iloc[0]["score"] == pytest.approx(9.5)
+
+
+# ---------------------------------------------------------------------------
+# Built-in fixtures
+# ---------------------------------------------------------------------------
+
+
+def test_orders_fixture_has_known_rows():
+    seeder = DuckdbSQLSeeder(fixtures.ORDERS)
+    executor = DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+    df = executor.query_to_df("SELECT COUNT(*) AS n FROM orders")
+    assert df.iloc[0]["n"] == 10
+
+
+def test_orders_fixture_fr_revenue():
+    seeder = DuckdbSQLSeeder(fixtures.ORDERS)
+    executor = DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+    df = executor.query_to_df(
+        "SELECT SUM(amount) AS rev FROM orders WHERE country = 'FR'"
+    )
+    assert df.iloc[0]["rev"] == pytest.approx(305.0)
+
+
+def test_orders_fixture_us_revenue():
+    seeder = DuckdbSQLSeeder(fixtures.ORDERS)
+    executor = DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+    df = executor.query_to_df(
+        "SELECT SUM(amount) AS rev FROM orders WHERE country = 'US'"
+    )
+    assert df.iloc[0]["rev"] == pytest.approx(830.0)
+
+
+def test_products_fixture():
+    seeder = DuckdbSQLSeeder(fixtures.PRODUCTS)
+    executor = DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+    df = executor.query_to_df("SELECT COUNT(*) AS n FROM products")
+    assert df.iloc[0]["n"] == 4
+
+
+def test_users_fixture():
+    seeder = DuckdbSQLSeeder(fixtures.USERS)
+    executor = DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+    df = executor.query_to_df("SELECT COUNT(*) AS n FROM users WHERE active = TRUE")
+    assert df.iloc[0]["n"] == 5
+
+
+def test_full_fixture_joins():
+    seeder = DuckdbSQLSeeder(fixtures.FULL)
+    executor = DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
+    df = executor.query_to_df(
+        "SELECT COUNT(*) AS n FROM orders o JOIN users u ON o.country = u.country"
+    )
+    assert df.iloc[0]["n"] > 0
+
+
+# ---------------------------------------------------------------------------
+# assert_scalar
+# ---------------------------------------------------------------------------
+
+
+def _make_kpi_df():
+    """Build a minimal KPI-shaped DataFrame for assertion tests."""
+    import pandas as pd
+
+    return pd.DataFrame(
+        [
+            {
+                "kpi_name": "revenue",
+                "country": "FR",
+                "value": 305.0,
+                "value_type": "float",
+            },
+            {
+                "kpi_name": "revenue",
+                "country": "US",
+                "value": 830.0,
+                "value_type": "float",
+            },
+            {
+                "kpi_name": "order_count",
+                "country": "FR",
+                "value": 4,
+                "value_type": "int",
+            },
+        ]
+    )
+
+
+def test_assert_scalar_passes():
+    df = _make_kpi_df()
+    assert_scalar(df, kpi_name="revenue", country="FR", expected=305.0)
+
+
+def test_assert_scalar_int():
+    df = _make_kpi_df()
+    assert_scalar(df, kpi_name="order_count", country="FR", expected=4, approx=False)
+
+
+def test_assert_scalar_wrong_value():
+    df = _make_kpi_df()
+    with pytest.raises(AssertionError):
+        assert_scalar(df, kpi_name="revenue", country="FR", expected=999.0)
+
+
+def test_assert_scalar_no_match():
+    df = _make_kpi_df()
+    with pytest.raises(AssertionError, match="No rows found"):
+        assert_scalar(df, kpi_name="revenue", country="DE", expected=200.0)
+
+
+def test_assert_scalar_bad_column():
+    df = _make_kpi_df()
+    with pytest.raises(AssertionError, match="Column"):
+        assert_scalar(df, kpi_name="revenue", nonexistent_col="X", expected=1.0)
+
+
+# ---------------------------------------------------------------------------
+# assert_shape
+# ---------------------------------------------------------------------------
+
+
+def test_assert_shape_passes():
+    import pandas as pd
+
+    square_df = pd.DataFrame(
+        [
+            {
+                "kpi_name": "revenue",
+                "country": "FR",
+                "value": 305.0,
+                "value_type": "float",
+            },
+            {
+                "kpi_name": "revenue",
+                "country": "US",
+                "value": 830.0,
+                "value_type": "float",
+            },
+            {
+                "kpi_name": "order_count",
+                "country": "FR",
+                "value": 4,
+                "value_type": "int",
+            },
+            {
+                "kpi_name": "order_count",
+                "country": "US",
+                "value": 4,
+                "value_type": "int",
+            },
+        ]
+    )
+    assert_shape(square_df, n_kpis=2, n_param_combos=2)
+
+
+def test_assert_shape_wrong_count():
+    df = _make_kpi_df()
+    with pytest.raises(AssertionError, match="rows"):
+        assert_shape(df, n_kpis=5, n_param_combos=5)
+
+
+# ---------------------------------------------------------------------------
+# assert_value_types
+# ---------------------------------------------------------------------------
+
+
+def test_assert_value_types_passes():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        [
+            {"kpi_name": "revenue", "value": 1.0, "value_type": "float"},
+            {"kpi_name": "revenue", "value": 2.0, "value_type": "float"},
+        ]
+    )
+    assert_value_types(df, "float")
+
+
+def test_assert_value_types_fails():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        [
+            {"kpi_name": "revenue", "value": 1.0, "value_type": "float"},
+            {"kpi_name": "order_count", "value": 2, "value_type": "int"},
+        ]
+    )
+    with pytest.raises(AssertionError):
+        assert_value_types(df, "float")
+
+
+# ---------------------------------------------------------------------------
+# pytest_plugin fixtures (imported directly, not via conftest)
+# ---------------------------------------------------------------------------
+
+
+def test_pytest_plugin_orders_executor():
+    from duckdb_executor.pytest_plugin import orders_executor as _fixture
+
+    assert callable(_fixture)
+
+
+def test_pytest_plugin_full_executor_query(full_executor):
+    df = full_executor.query_to_df("SELECT COUNT(*) AS n FROM orders")
+    assert df.iloc[0]["n"] == 10
+</file>
+
+<file path=".python-version">
+3.13
+</file>
+
+<file path="example.py">
+from duckdb_executor import DuckdbSQLSeeder, DuckdbSQLExecutor, Dialect
+import pandas as pd
+
+mock_data = {
+    "users": [
+        {"id": 1, "name": "Alice", "role": "Admin"},
+        {"id": 2, "name": "Bob", "role": "User"}
+    ]
+}
+
+seeder = DuckdbSQLSeeder(mock_data)
+executor = DuckdbSQLExecutor(dialect=Dialect.AZURE_SYNAPSE, seeder=seeder)
+query = "SELECT TOP 1 * FROM users ORDER BY id DESC"
+df = executor.query_to_df(query)
+
+print("T-SQL Result in DuckDB:")
+print(df)
+</file>
+
+<file path="main.py">
+def main():
+    print("Hello from duckdb-simulator!")
+
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="README.md">
+# DuckDB SQL Simulator for Dataiku
+
+This repository simulates the behavior of Dataiku's `SQLExecutor2.query_to_df(query)` for local testing. It translates syntax from multiple SQL dialects into DuckDB SQL via `sqlglot`, dynamically seeds test data into DuckDB from Python dictionaries or JSON configuration files, and fetches the execution results as standard `pandas` DataFrames.
+
+## Setup
+
+The project uses `uv` for lightning-fast package management. First, install `uv` (if not already installed). 
+Then, clone the repo and sync dependencies:
+
+```bash
+uv sync --all-extras
+```
+
+## Usage Example
+
+### 1. Simple Dictionary Seeding
+
+You can seed your DuckDB instance with local mock data using python dictionaries or a JSON file.
+
+```python
+from duckdb_executor import DuckdbSQLSeeder, DuckdbSQLExecutor, Dialect
+
+# 1. Define your mock data
+mock_data = {
+    "users": [
+        {"id": 1, "name": "Alice", "role": "Admin"},
+        {"id": 2, "name": "Bob", "role": "User"}
+    ]
+}
+
+# 2. Initialize Seeder
+seeder = DuckdbSQLSeeder(mock_data)
+
+# 3. Initialize Executor (let's simulate Azure Synapse T-SQL)
+executor = DuckdbSQLExecutor(dialect=Dialect.AZURE_SYNAPSE, seeder=seeder)
+
+# 4. Write query in T-SQL dialect (Notice the TOP keyword instead of LIMIT)
+query = "SELECT TOP 1 * FROM users ORDER BY id DESC"
+
+# 5. Execute - the query is automatically translated to DuckDB SQL before execution!
+df = executor.query_to_df(query)
+
+print(df)
+#    id name  role
+# 0   2  Bob  User
+```
+
+## Testing
+
+To run the unit tests across syntax transpilation and seeding:
+
+```bash
+uv run pytest
+```
+</file>
+
+<file path="src/duckdb_executor/__init__.py">
+from .models import Dialect
+from .seeder import DuckdbSQLSeeder
+from .executor import DuckdbSQLExecutor
+from .protocols import SQLExecutor
+from .testing import FixtureBuilder, assert_scalar, assert_shape, assert_value_types
+from . import fixtures
+
+__all__ = [
+    # Core
+    "Dialect",
+    "DuckdbSQLSeeder",
+    "DuckdbSQLExecutor",
+    "SQLExecutor",
+    # Testing toolkit
+    "FixtureBuilder",
+    "assert_scalar",
+    "assert_shape",
+    "assert_value_types",
+    "fixtures",
+]
+</file>
+
+<file path="src/duckdb_executor/executor.py">
+import duckdb
+import pandas as pd
+import sqlglot
+from .models import Dialect
+from .seeder import DuckdbSQLSeeder
+
+
+class DuckdbSQLExecutor:
+    """
+    A local DuckDB-based executor that translates SQL queries using sqlglot,
+    and runs them against mock data seeded via DuckdbSQLSeeder.
+    Compliant with the SQLExecutor protocol.
+    """
+
+    def __init__(self, dialect: str, seeder: DuckdbSQLSeeder):
+        """
+        Initializes the executor with a specific dialect and a seeded DB connection.
+
+        Args:
+            dialect (str): The dialect of the input queries (e.g. "azure-synapse-t-sql").
+            seeder (DuckdbSQLSeeder): An initialized seeder with populated tables.
+        """
+        try:
+            # Check if dialect is a supported valid Enum, and extract its logic
+            self.dialect_enum = Dialect(dialect)
+            self.read_dialect = self.dialect_enum.to_sqlglot_dialect(dialect)
+        except ValueError:
+            # Fallback to direct string if someone passes a valid sqlglot dialect not in Enum
+            self.read_dialect = dialect
+
+        self.conn = seeder.get_connection()
+
+    def query_to_df(self, query: str) -> pd.DataFrame:
+        """
+        Translates the given query from the source dialect to duckdb dialect,
+        executes it, and returns a pandas DataFrame.
+        """
+        try:
+            # Parse the query with the defined read dialect and transpile to duckdb
+            translated_query = sqlglot.transpile(
+                query, read=self.read_dialect, write="duckdb"
+            )[0]
+        except Exception as e:
+            raise ValueError(f"Failed to parse and translate query: {e}")
+
+        try:
+            # Execute the query using DuckDB's execute method, which supports returning a pandas df directly.
+            result = self.conn.execute(translated_query)
+            if result is None:
+                raise Exception("Query returned no result object.")
+            return result.fetchdf()
+        except duckdb.Error as e:
+            raise Exception(f"Database execution failed: {e}")
+        except Exception as e:
+            raise Exception(f"An unexpected error occurred during execution: {e}")
+</file>
+
+<file path="src/duckdb_executor/models.py">
+from enum import Enum
+
+
+class Dialect(str, Enum):
+    """
+    Enum representing support SQL dialects via sqlglot.
+    """
+
+    # Map common dialects directly to sqlglot's string representations.
+    TSQL = "tsql"
+    AZURE_SYNAPSE = "azure-synapse-t-sql"  # usually mapped to tsql internally by sqlglot but we can retain the name
+    POSTGRES = "postgres"
+    MYSQL = "mysql"
+    SNOWFLAKE = "snowflake"
+    BIGQUERY = "bigquery"
+    ORACLE = "oracle"
+    REDSHIFT = "redshift"
+    SQLITE = "sqlite"
+    PRESTO = "presto"
+    TRINO = "trino"
+    SPARK = "spark"
+    DATABRICKS = "databricks"
+    DUCKDB = "duckdb"
+
+    @classmethod
+    def to_sqlglot_dialect(cls, dialect: str) -> str:
+        """
+        Converts the provided dialect string to a valid sqlglot dialect if needed.
+        For example, 'azure-synapse-t-sql' resolves to 'tsql'.
+        """
+        if dialect == cls.AZURE_SYNAPSE:
+            return "tsql"
+        return dialect
+</file>
+
+<file path="src/duckdb_executor/protocols.py">
+import pandas as pd
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class SQLExecutor(Protocol):
+    """
+    Protocol for SQL executor compatibility.
+    Compatible with SQLExecutor2.query_to_df
+    """
+
+    def query_to_df(self, query: str) -> pd.DataFrame:
+        """
+        Executes a SQL query and returns results as DataFrame.
+
+        Args:
+            query (str): SQL query to execute
+
+        Returns:
+            pd.DataFrame: Result of SQL query
+
+        Raises:
+            ValueError: If query is invalid
+            Exception: If execution fails
+        """
+        ...
+</file>
+
+<file path="src/duckdb_executor/seeder.py">
+import duckdb
+import pandas as pd
+import json
+from typing import Union, Dict, Any
+import os
+
+
+class DuckdbSQLSeeder:
+    """
+    Seeds a DuckDB database with mock data from JSON configuration or python dictionaries.
+    """
+
+    def __init__(self, config: Union[str, Dict[str, Any]]):
+        """
+        Initializes the DuckDB connection and seeds it based on the config.
+
+        Args:
+            config (Union[str, Dict[str, Any]]): A file path to a JSON configuration
+                                                 or a dictionary mapping table names to data (list of dicts).
+        """
+        self.conn = duckdb.connect(":memory:")  # Use in-memory DB for tests
+        self._seed(config)
+
+    def _seed(self, config: Union[str, Dict[str, Any]]):
+        data_dict = {}
+        if isinstance(config, str) and os.path.exists(config):
+            with open(config, "r") as f:
+                data_dict = json.load(f)
+        elif isinstance(config, dict):
+            data_dict = config
+        else:
+            raise ValueError("Config must be a valid file path or a dictionary.")
+
+        for table_name, table_data in data_dict.items():
+            # Convert list of dicts to pandas DataFrame, which DuckDB can read natively.
+            df = pd.DataFrame(table_data)
+
+            # Register dataframe directly as a table in duckdb
+            self.conn.register("temp_df", df)
+            self.conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM temp_df")
+            self.conn.unregister("temp_df")
+
+    def get_connection(self) -> duckdb.DuckDBPyConnection:
+        """
+        Returns the seeded duckdb connection.
+        """
+        return self.conn
+</file>
+
+<file path="tests/test_seeder.py">
+from duckdb_executor.seeder import DuckdbSQLSeeder
+import json
+
+
+def test_seeder_with_dict():
+    mock_data = {
+        "users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+        "orders": [{"user_id": 1, "amount": 100}, {"user_id": 2, "amount": 200}],
+    }
+    seeder = DuckdbSQLSeeder(mock_data)
+    conn = seeder.get_connection()
+
+    # query to verify
+    df_users = conn.execute("SELECT * FROM users").fetchdf()
+    assert len(df_users) == 2
+    assert list(df_users["name"]) == ["Alice", "Bob"]
+
+    df_orders = conn.execute("SELECT * FROM orders").fetchdf()
+    assert len(df_orders) == 2
+
+
+def test_seeder_with_json_file(tmp_path):
+    mock_data = {"products": [{"id": 1, "price": 10.5}, {"id": 2, "price": 20.0}]}
+    file_path = tmp_path / "mock.json"
+    with open(file_path, "w") as f:
+        json.dump(mock_data, f)
+
+    seeder = DuckdbSQLSeeder(str(file_path))
+    conn = seeder.get_connection()
+
+    df_products = conn.execute("SELECT * FROM products").fetchdf()
+    assert len(df_products) == 2
+</file>
+
+<file path=".gitignore">
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Pytest
+.pytest_cache/
+.coverage
+</file>
+
+<file path=".github/workflows/ci.yml">
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install the project
+        run: uv sync --all-extras --dev
+
+      - name: Run tests
+        env:
+          PYTHONPATH: src
+        run: uv run python -m pytest -v --tb=short
+
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Install the project
+        run: uv sync --all-extras --dev
+
+      - name: Black format check
+        run: uv run black --check --target-version py313 src/ tests/
+
+      - name: Ruff lint
+        run: uv run ruff check src/ tests/
+
+      - name: Dead code check (vulture)
+        run: uv run vulture src/ --min-confidence 80
+</file>
+
+<file path="tests/test_executor.py">
+import pytest
+from duckdb_executor.seeder import DuckdbSQLSeeder
+from duckdb_executor.executor import DuckdbSQLExecutor
+from duckdb_executor.models import Dialect
+
+
+@pytest.fixture
+def mock_seeder():
+    data = {
+        "employees": [
+            {"id": 1, "name": "Alice", "salary": 50000, "dept_id": 1},
+            {"id": 2, "name": "Bob", "salary": 60000, "dept_id": 1},
+            {"id": 3, "name": "Charlie", "salary": 70000, "dept_id": 2},
+        ],
+        "departments": [
+            {"id": 1, "name": "Engineering"},
+            {"id": 2, "name": "Marketing"},
+        ],
+    }
+    return DuckdbSQLSeeder(data)
+
+
+def test_executor_tsql_translation(mock_seeder):
+    # Use azure-synapse-t-sql which maps to tsql in sqlglot
+    executor = DuckdbSQLExecutor(dialect=Dialect.AZURE_SYNAPSE, seeder=mock_seeder)
+
+    # TSQL uses TOP N instead of LIMIT N
+    query = "SELECT TOP 2 * FROM employees ORDER BY salary DESC"
+
+    df = executor.query_to_df(query)
+
+    assert len(df) == 2
+    assert list(df["name"]) == ["Charlie", "Bob"]
+    assert list(df["salary"]) == [70000, 60000]
+
+
+def test_executor_invalid_query(mock_seeder):
+    executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
+    with pytest.raises(Exception):
+        executor.query_to_df("SELECT * FROM nonexistent_table")
+
+
+def test_executor_protocol_compliance(mock_seeder):
+    from duckdb_executor.protocols import SQLExecutor
+
+    executor = DuckdbSQLExecutor(dialect=Dialect.TSQL, seeder=mock_seeder)
+
+    # Verify it matches the protocol structurally using isinstance
+    assert isinstance(executor, SQLExecutor)
+
+
+def test_executor_join_query(mock_seeder):
+    executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
+    query = """
+    SELECT e.name AS employee_name, d.name AS department_name
+    FROM employees e
+    JOIN departments d ON e.dept_id = d.id
+    ORDER BY e.id
+    """
+    df = executor.query_to_df(query)
+    assert len(df) == 3
+    assert list(df["employee_name"]) == ["Alice", "Bob", "Charlie"]
+    assert list(df["department_name"]) == ["Engineering", "Engineering", "Marketing"]
+
+
+def test_executor_cte_query(mock_seeder):
+    executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
+    query = """
+    WITH HighEarners AS (
+        SELECT name, salary FROM employees WHERE salary > 55000
+    )
+    SELECT * FROM HighEarners ORDER BY salary DESC
+    """
+    df = executor.query_to_df(query)
+    assert len(df) == 2
+    assert list(df["name"]) == ["Charlie", "Bob"]
+    assert list(df["salary"]) == [70000, 60000]
+
+
+def test_executor_window_function_query(mock_seeder):
+    executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
+    query = """
+    SELECT name, salary, 
+           RANK() OVER (PARTITION BY dept_id ORDER BY salary DESC) as dept_rank
+    FROM employees
+    ORDER BY id
+    """
+    df = executor.query_to_df(query)
+    assert len(df) == 3
+    assert list(df["name"]) == ["Alice", "Bob", "Charlie"]
+    # Alice (Engineering) has lowest salary (50k) so rank 2 in dept 1
+    # Bob (Engineering) has highest salary (60k) so rank 1 in dept 1
+    # Charlie (Marketing) has 70k so rank 1 in dept 2
+    assert list(df["dept_rank"]) == [2, 1, 1]
+</file>
+
+<file path="pyproject.toml">
+[project]
+name = "duckdb-simulator"
+version = "0.1.0"
+description = "A local SQL simulator mapped to Dataiku's SQLExecutor2 utilizing DuckDB and SQLGlot"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "duckdb>=1.4.4",
+    "pandas>=3.0.1",
+    "sqlglot>=29.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "black>=26.3.1",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.8",
+    "vulture>=2.16",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/duckdb_executor"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "src"
+]
+</file>
+
+</files>
