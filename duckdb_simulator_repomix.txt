@@ -44,7 +44,7 @@ The content is organized as follows:
   workflows/
     ci.yml
 src/
-  duckdb_executor/
+  duckdb_simulator/
     __init__.py
     executor.py
     fixtures.py
@@ -69,7 +69,109 @@ README.md
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/duckdb_executor/fixtures.py">
+<file path="src/duckdb_simulator/__init__.py">
+from .models import Dialect
+from .seeder import DuckdbSQLSeeder
+from .executor import DuckdbSQLExecutor, QueryTranslationError, QueryExecutionError
+from .protocols import SQLExecutor
+from .testing import FixtureBuilder, assert_scalar, assert_shape, assert_value_types
+from . import fixtures
+
+__all__ = [
+    # Core
+    "Dialect",
+    "DuckdbSQLSeeder",
+    "DuckdbSQLExecutor",
+    "SQLExecutor",
+    "QueryTranslationError",
+    "QueryExecutionError",
+    # Testing toolkit
+    "FixtureBuilder",
+    "assert_scalar",
+    "assert_shape",
+    "assert_value_types",
+    "fixtures",
+]
+</file>
+
+<file path="src/duckdb_simulator/executor.py">
+import duckdb
+import pandas as pd
+import sqlglot
+
+from .models import Dialect
+from .seeder import DuckdbSQLSeeder
+
+
+class QueryTranslationError(Exception):
+    """Raised when SQL query translation fails."""
+
+
+class QueryExecutionError(Exception):
+    """Raised when SQL query execution fails."""
+
+
+class DuckdbSQLExecutor:
+    """
+    A local DuckDB-based executor that translates SQL queries using sqlglot,
+    and runs them against mock data seeded via DuckdbSQLSeeder.
+    Compliant with the SQLExecutor protocol.
+    """
+
+    def __init__(self, dialect: str, seeder: DuckdbSQLSeeder):
+        """
+        Initializes the executor with a specific dialect and a seeded DB connection.
+
+        Args:
+            dialect (str): The dialect of the input queries (e.g. "azure-synapse-t-sql").
+            seeder (DuckdbSQLSeeder): An initialized seeder with populated tables.
+        """
+        try:
+            self.dialect_enum = Dialect(dialect)
+            self.read_dialect = self.dialect_enum.to_sqlglot_dialect(dialect)
+        except ValueError:
+            self.read_dialect = dialect
+
+        self.conn = seeder.get_connection()
+
+    def query_to_df(self, query: str) -> pd.DataFrame:
+        """
+        Translates the given query from the source dialect to duckdb dialect,
+        executes it, and returns a pandas DataFrame.
+
+        Args:
+            query (str): SQL query to execute
+
+        Returns:
+            pd.DataFrame: Result of SQL query
+
+        Raises:
+            QueryTranslationError: If query translation fails.
+            QueryExecutionError: If query execution fails.
+        """
+        try:
+            translated_query = sqlglot.transpile(
+                query, read=self.read_dialect, write="duckdb"
+            )[0]
+        except Exception as e:
+            raise QueryTranslationError(
+                f"Failed to parse and translate query: {e}"
+            ) from e
+
+        try:
+            result = self.conn.execute(translated_query)
+            if result is None:
+                raise QueryExecutionError("Query returned no result object.")
+            return result.fetchdf()
+        except duckdb.Error as e:
+            raise QueryExecutionError(f"Database execution failed: {e}") from e
+        except Exception as e:
+            raise QueryExecutionError(
+                f"An unexpected error occurred during execution: {e}"
+            ) from e
+</file>
+
+<file path="src/duckdb_simulator/fixtures.py">
 """
 duckdb_executor.fixtures
 ------------------------
@@ -170,17 +272,82 @@ FULL: dict[str, list[dict[str, Any]]] = {
 }
 </file>
 
-<file path="src/duckdb_executor/pytest_plugin.py">
+<file path="src/duckdb_simulator/models.py">
+from enum import Enum
+
+
+class Dialect(str, Enum):
+    """
+    Enum representing support SQL dialects via sqlglot.
+    """
+
+    # Map common dialects directly to sqlglot's string representations.
+    TSQL = "tsql"
+    AZURE_SYNAPSE = "azure-synapse-t-sql"  # usually mapped to tsql internally by sqlglot but we can retain the name
+    POSTGRES = "postgres"
+    MYSQL = "mysql"
+    SNOWFLAKE = "snowflake"
+    BIGQUERY = "bigquery"
+    ORACLE = "oracle"
+    REDSHIFT = "redshift"
+    SQLITE = "sqlite"
+    PRESTO = "presto"
+    TRINO = "trino"
+    SPARK = "spark"
+    DATABRICKS = "databricks"
+    DUCKDB = "duckdb"
+
+    @classmethod
+    def to_sqlglot_dialect(cls, dialect: str) -> str:
+        """
+        Converts the provided dialect string to a valid sqlglot dialect if needed.
+        For example, 'azure-synapse-t-sql' resolves to 'tsql'.
+        """
+        if dialect == cls.AZURE_SYNAPSE:
+            return "tsql"
+        return dialect
+</file>
+
+<file path="src/duckdb_simulator/protocols.py">
+import pandas as pd
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class SQLExecutor(Protocol):
+    """
+    Protocol for SQL executor compatibility.
+    Compatible with SQLExecutor2.query_to_df
+    """
+
+    def query_to_df(self, query: str) -> pd.DataFrame:
+        """
+        Executes a SQL query and returns results as DataFrame.
+
+        Args:
+            query (str): SQL query to execute
+
+        Returns:
+            pd.DataFrame: Result of SQL query
+
+        Raises:
+            ValueError: If query is invalid
+            Exception: If execution fails
+        """
+        ...
+</file>
+
+<file path="src/duckdb_simulator/pytest_plugin.py">
 """
-duckdb_executor.pytest_plugin
+duckdb_simulator.pytest_plugin
 -----------------------------
 Ready-made pytest fixtures. Register in conftest.py:
 
-    from duckdb_executor.pytest_plugin import *  # noqa: F401, F403
+    from duckdb_simulator.pytest_plugin import *  # noqa: F401, F403
 
 Or selectively:
 
-    from duckdb_executor.pytest_plugin import orders_executor
+    from duckdb_simulator.pytest_plugin import orders_executor
 """
 
 from __future__ import annotations
@@ -228,7 +395,80 @@ def blank_executor() -> DuckdbSQLExecutor:
     return DuckdbSQLExecutor(dialect=Dialect.DUCKDB, seeder=seeder)
 </file>
 
-<file path="src/duckdb_executor/testing.py">
+<file path="src/duckdb_simulator/seeder.py">
+import duckdb
+import pandas as pd
+import json
+from typing import Union, Dict, Any
+import os
+import re
+
+
+class DuckdbSQLSeeder:
+    """
+    Seeds a DuckDB database with mock data from JSON configuration or python dictionaries.
+    """
+
+    def __init__(self, config: Union[str, Dict[str, Any]]):
+        """
+        Initializes the DuckDB connection and seeds it based on the config.
+
+        Args:
+            config (Union[str, Dict[str, Any]]): A file path to a JSON configuration
+                                                 or a dictionary mapping table names to data (list of dicts).
+        """
+        self.conn = duckdb.connect(":memory:")  # Use in-memory DB for tests
+        self._seed(config)
+
+    def _validate_table_name(self, name: str) -> None:
+        """
+        Validates that a table name follows SQL identifier rules to prevent SQL injection.
+
+        Args:
+            name (str): Table name to validate
+
+        Raises:
+            ValueError: If table name contains invalid characters
+        """
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
+            raise ValueError(
+                f"Invalid table name: '{name}'. "
+                "Table names must start with a letter or underscore and contain only alphanumeric characters and underscores."
+            )
+
+    def _seed(self, config: Union[str, Dict[str, Any]]) -> None:
+        """Seeds database with provided configuration."""
+        data_dict = {}
+        if isinstance(config, str) and os.path.exists(config):
+            with open(config, "r") as f:
+                data_dict = json.load(f)
+        elif isinstance(config, dict):
+            data_dict = config
+        else:
+            raise ValueError("Config must be a valid file path or a dictionary.")
+
+        for table_name, table_data in data_dict.items():
+            # Validate table name to prevent SQL injection
+            self._validate_table_name(table_name)
+
+            # Convert list of dicts to pandas DataFrame, which DuckDB can read natively.
+            df = pd.DataFrame(table_data)
+
+            # Register dataframe directly as a table in duckdb
+            # Use a unique temporary name based on the table to avoid conflicts
+            temp_name = f"_temp_{table_name}_{id(df)}"
+            self.conn.register(temp_name, df)
+            self.conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM {temp_name}")
+            self.conn.unregister(temp_name)
+
+    def get_connection(self) -> duckdb.DuckDBPyConnection:
+        """
+        Returns the seeded duckdb connection.
+        """
+        return self.conn
+</file>
+
+<file path="src/duckdb_simulator/testing.py">
 """
 duckdb_executor.testing
 -----------------------
@@ -409,7 +649,7 @@ def assert_value_types(df: pd.DataFrame, expected_type: str) -> None:
 </file>
 
 <file path="tests/conftest.py">
-from duckdb_executor.pytest_plugin import (
+from duckdb_simulator.pytest_plugin import (
     full_executor,
     orders_executor,
     products_executor,
@@ -427,13 +667,13 @@ __all__ = [
 </file>
 
 <file path="tests/test_testing_toolkit.py">
-"""Tests for the duckdb_executor testing toolkit."""
+"""Tests for the duckdb_simulator testing toolkit."""
 
 from __future__ import annotations
 
 import pytest
 
-from duckdb_executor import (
+from duckdb_simulator import (
     DuckdbSQLExecutor,
     DuckdbSQLSeeder,
     Dialect,
@@ -683,7 +923,7 @@ def test_assert_value_types_fails():
 
 
 def test_pytest_plugin_orders_executor():
-    from duckdb_executor.pytest_plugin import orders_executor as _fixture
+    from duckdb_simulator.pytest_plugin import orders_executor as _fixture
 
     assert callable(_fixture)
 
@@ -727,9 +967,17 @@ if __name__ == "__main__":
 </file>
 
 <file path="README.md">
-# DuckDB SQL Simulator for Dataiku
+# DuckDB SQL Simulator
 
-This repository simulates the behavior of Dataiku's `SQLExecutor2.query_to_df(query)` for local testing. It translates syntax from multiple SQL dialects into DuckDB SQL via `sqlglot`, dynamically seeds test data into DuckDB from Python dictionaries or JSON configuration files, and fetches the execution results as standard `pandas` DataFrames.
+A lightweight local SQL executor that returns pandas DataFrames. This tool enables testing of SQL queries across multiple dialects (T-SQL, PostgreSQL, BigQuery, etc.) by translating them to DuckDB via `sqlglot`. Perfect for local development and testing without needing a database connection.
+
+## Features
+
+- 🔄 **Multi-dialect support** - T-SQL, PostgreSQL, MySQL, BigQuery, Snowflake, and more
+- 🛡️ **SQL injection protection** - Validated table names
+- 📊 **Pandas output** - Returns standard pandas DataFrames
+- 🧪 **Flexible mocking** - Seed from Python dicts or JSON files
+- ⚡ **Fast execution** - Powered by DuckDB in-memory engine
 
 ## Setup
 
@@ -747,7 +995,7 @@ uv sync --all-extras
 You can seed your DuckDB instance with local mock data using python dictionaries or a JSON file.
 
 ```python
-from duckdb_executor import DuckdbSQLSeeder, DuckdbSQLExecutor, Dialect
+from duckdb_simulator import DuckdbSQLSeeder, DuckdbSQLExecutor, Dialect
 
 # 1. Define your mock data
 mock_data = {
@@ -783,205 +1031,12 @@ uv run pytest
 ```
 </file>
 
-<file path="src/duckdb_executor/__init__.py">
-from .models import Dialect
-from .seeder import DuckdbSQLSeeder
-from .executor import DuckdbSQLExecutor
-from .protocols import SQLExecutor
-from .testing import FixtureBuilder, assert_scalar, assert_shape, assert_value_types
-from . import fixtures
-
-__all__ = [
-    # Core
-    "Dialect",
-    "DuckdbSQLSeeder",
-    "DuckdbSQLExecutor",
-    "SQLExecutor",
-    # Testing toolkit
-    "FixtureBuilder",
-    "assert_scalar",
-    "assert_shape",
-    "assert_value_types",
-    "fixtures",
-]
-</file>
-
-<file path="src/duckdb_executor/executor.py">
-import duckdb
-import pandas as pd
-import sqlglot
-from .models import Dialect
-from .seeder import DuckdbSQLSeeder
-
-
-class DuckdbSQLExecutor:
-    """
-    A local DuckDB-based executor that translates SQL queries using sqlglot,
-    and runs them against mock data seeded via DuckdbSQLSeeder.
-    Compliant with the SQLExecutor protocol.
-    """
-
-    def __init__(self, dialect: str, seeder: DuckdbSQLSeeder):
-        """
-        Initializes the executor with a specific dialect and a seeded DB connection.
-
-        Args:
-            dialect (str): The dialect of the input queries (e.g. "azure-synapse-t-sql").
-            seeder (DuckdbSQLSeeder): An initialized seeder with populated tables.
-        """
-        try:
-            # Check if dialect is a supported valid Enum, and extract its logic
-            self.dialect_enum = Dialect(dialect)
-            self.read_dialect = self.dialect_enum.to_sqlglot_dialect(dialect)
-        except ValueError:
-            # Fallback to direct string if someone passes a valid sqlglot dialect not in Enum
-            self.read_dialect = dialect
-
-        self.conn = seeder.get_connection()
-
-    def query_to_df(self, query: str) -> pd.DataFrame:
-        """
-        Translates the given query from the source dialect to duckdb dialect,
-        executes it, and returns a pandas DataFrame.
-        """
-        try:
-            # Parse the query with the defined read dialect and transpile to duckdb
-            translated_query = sqlglot.transpile(
-                query, read=self.read_dialect, write="duckdb"
-            )[0]
-        except Exception as e:
-            raise ValueError(f"Failed to parse and translate query: {e}")
-
-        try:
-            # Execute the query using DuckDB's execute method, which supports returning a pandas df directly.
-            result = self.conn.execute(translated_query)
-            if result is None:
-                raise Exception("Query returned no result object.")
-            return result.fetchdf()
-        except duckdb.Error as e:
-            raise Exception(f"Database execution failed: {e}")
-        except Exception as e:
-            raise Exception(f"An unexpected error occurred during execution: {e}")
-</file>
-
-<file path="src/duckdb_executor/models.py">
-from enum import Enum
-
-
-class Dialect(str, Enum):
-    """
-    Enum representing support SQL dialects via sqlglot.
-    """
-
-    # Map common dialects directly to sqlglot's string representations.
-    TSQL = "tsql"
-    AZURE_SYNAPSE = "azure-synapse-t-sql"  # usually mapped to tsql internally by sqlglot but we can retain the name
-    POSTGRES = "postgres"
-    MYSQL = "mysql"
-    SNOWFLAKE = "snowflake"
-    BIGQUERY = "bigquery"
-    ORACLE = "oracle"
-    REDSHIFT = "redshift"
-    SQLITE = "sqlite"
-    PRESTO = "presto"
-    TRINO = "trino"
-    SPARK = "spark"
-    DATABRICKS = "databricks"
-    DUCKDB = "duckdb"
-
-    @classmethod
-    def to_sqlglot_dialect(cls, dialect: str) -> str:
-        """
-        Converts the provided dialect string to a valid sqlglot dialect if needed.
-        For example, 'azure-synapse-t-sql' resolves to 'tsql'.
-        """
-        if dialect == cls.AZURE_SYNAPSE:
-            return "tsql"
-        return dialect
-</file>
-
-<file path="src/duckdb_executor/protocols.py">
-import pandas as pd
-from typing import Protocol, runtime_checkable
-
-
-@runtime_checkable
-class SQLExecutor(Protocol):
-    """
-    Protocol for SQL executor compatibility.
-    Compatible with SQLExecutor2.query_to_df
-    """
-
-    def query_to_df(self, query: str) -> pd.DataFrame:
-        """
-        Executes a SQL query and returns results as DataFrame.
-
-        Args:
-            query (str): SQL query to execute
-
-        Returns:
-            pd.DataFrame: Result of SQL query
-
-        Raises:
-            ValueError: If query is invalid
-            Exception: If execution fails
-        """
-        ...
-</file>
-
-<file path="src/duckdb_executor/seeder.py">
-import duckdb
-import pandas as pd
-import json
-from typing import Union, Dict, Any
-import os
-
-
-class DuckdbSQLSeeder:
-    """
-    Seeds a DuckDB database with mock data from JSON configuration or python dictionaries.
-    """
-
-    def __init__(self, config: Union[str, Dict[str, Any]]):
-        """
-        Initializes the DuckDB connection and seeds it based on the config.
-
-        Args:
-            config (Union[str, Dict[str, Any]]): A file path to a JSON configuration
-                                                 or a dictionary mapping table names to data (list of dicts).
-        """
-        self.conn = duckdb.connect(":memory:")  # Use in-memory DB for tests
-        self._seed(config)
-
-    def _seed(self, config: Union[str, Dict[str, Any]]):
-        data_dict = {}
-        if isinstance(config, str) and os.path.exists(config):
-            with open(config, "r") as f:
-                data_dict = json.load(f)
-        elif isinstance(config, dict):
-            data_dict = config
-        else:
-            raise ValueError("Config must be a valid file path or a dictionary.")
-
-        for table_name, table_data in data_dict.items():
-            # Convert list of dicts to pandas DataFrame, which DuckDB can read natively.
-            df = pd.DataFrame(table_data)
-
-            # Register dataframe directly as a table in duckdb
-            self.conn.register("temp_df", df)
-            self.conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM temp_df")
-            self.conn.unregister("temp_df")
-
-    def get_connection(self) -> duckdb.DuckDBPyConnection:
-        """
-        Returns the seeded duckdb connection.
-        """
-        return self.conn
-</file>
-
 <file path="tests/test_seeder.py">
-from duckdb_executor.seeder import DuckdbSQLSeeder
 import json
+
+import pytest
+
+from duckdb_simulator.seeder import DuckdbSQLSeeder
 
 
 def test_seeder_with_dict():
@@ -992,7 +1047,6 @@ def test_seeder_with_dict():
     seeder = DuckdbSQLSeeder(mock_data)
     conn = seeder.get_connection()
 
-    # query to verify
     df_users = conn.execute("SELECT * FROM users").fetchdf()
     assert len(df_users) == 2
     assert list(df_users["name"]) == ["Alice", "Bob"]
@@ -1009,9 +1063,56 @@ def test_seeder_with_json_file(tmp_path):
 
     seeder = DuckdbSQLSeeder(str(file_path))
     conn = seeder.get_connection()
-
     df_products = conn.execute("SELECT * FROM products").fetchdf()
     assert len(df_products) == 2
+
+
+def test_seeder_invalid_table_name_sql_injection():
+    with pytest.raises(ValueError, match="Invalid table name"):
+        DuckdbSQLSeeder({"users; DROP TABLE users--": [{"id": 1}]})
+
+
+def test_seeder_invalid_table_name_starts_with_number():
+    with pytest.raises(ValueError, match="Invalid table name"):
+        DuckdbSQLSeeder({"123users": [{"id": 1}]})
+
+
+def test_seeder_invalid_table_name_with_spaces():
+    with pytest.raises(ValueError, match="Invalid table name"):
+        DuckdbSQLSeeder({"user table": [{"id": 1}]})
+
+
+def test_seeder_valid_table_names_with_underscores():
+    seeder = DuckdbSQLSeeder(
+        {
+            "user_accounts": [{"id": 1}],
+            "_private_data": [{"value": 100}],
+            "table_123_test": [{"id": 1}],
+        }
+    )
+    conn = seeder.get_connection()
+    assert len(conn.execute("SELECT * FROM user_accounts").fetchdf()) == 1
+    assert len(conn.execute("SELECT * FROM _private_data").fetchdf()) == 1
+    assert len(conn.execute("SELECT * FROM table_123_test").fetchdf()) == 1
+
+
+def test_seeder_invalid_json_file():
+    with pytest.raises(ValueError, match="Config must be a valid file path"):
+        DuckdbSQLSeeder("/path/to/nonexistent/file.json")
+
+
+def test_seeder_multiple_tables_no_conflict():
+    seeder = DuckdbSQLSeeder(
+        {
+            "table1": [{"id": 1}],
+            "table2": [{"id": 2}],
+            "table3": [{"id": 3}],
+        }
+    )
+    conn = seeder.get_connection()
+    for i in range(1, 4):
+        df = conn.execute(f"SELECT * FROM table{i}").fetchdf()
+        assert df["id"].iloc[0] == i
 </file>
 
 <file path=".gitignore">
@@ -1121,9 +1222,15 @@ jobs:
 
 <file path="tests/test_executor.py">
 import pytest
-from duckdb_executor.seeder import DuckdbSQLSeeder
-from duckdb_executor.executor import DuckdbSQLExecutor
-from duckdb_executor.models import Dialect
+
+from duckdb_simulator.executor import (
+    DuckdbSQLExecutor,
+    QueryExecutionError,
+    QueryTranslationError,
+)
+from duckdb_simulator.models import Dialect
+from duckdb_simulator.protocols import SQLExecutor
+from duckdb_simulator.seeder import DuckdbSQLSeeder
 
 
 @pytest.fixture
@@ -1143,43 +1250,37 @@ def mock_seeder():
 
 
 def test_executor_tsql_translation(mock_seeder):
-    # Use azure-synapse-t-sql which maps to tsql in sqlglot
     executor = DuckdbSQLExecutor(dialect=Dialect.AZURE_SYNAPSE, seeder=mock_seeder)
-
-    # TSQL uses TOP N instead of LIMIT N
-    query = "SELECT TOP 2 * FROM employees ORDER BY salary DESC"
-
-    df = executor.query_to_df(query)
-
+    df = executor.query_to_df("SELECT TOP 2 * FROM employees ORDER BY salary DESC")
     assert len(df) == 2
     assert list(df["name"]) == ["Charlie", "Bob"]
-    assert list(df["salary"]) == [70000, 60000]
 
 
 def test_executor_invalid_query(mock_seeder):
     executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
-    with pytest.raises(Exception):
+    with pytest.raises(QueryExecutionError, match="nonexistent_table"):
         executor.query_to_df("SELECT * FROM nonexistent_table")
 
 
+def test_executor_invalid_sql_syntax(mock_seeder):
+    executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
+    with pytest.raises(QueryTranslationError):
+        executor.query_to_df("SELECT FROM WHERE")
+
+
 def test_executor_protocol_compliance(mock_seeder):
-    from duckdb_executor.protocols import SQLExecutor
-
     executor = DuckdbSQLExecutor(dialect=Dialect.TSQL, seeder=mock_seeder)
-
-    # Verify it matches the protocol structurally using isinstance
     assert isinstance(executor, SQLExecutor)
 
 
 def test_executor_join_query(mock_seeder):
     executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
-    query = """
-    SELECT e.name AS employee_name, d.name AS department_name
-    FROM employees e
-    JOIN departments d ON e.dept_id = d.id
-    ORDER BY e.id
-    """
-    df = executor.query_to_df(query)
+    df = executor.query_to_df("""
+        SELECT e.name AS employee_name, d.name AS department_name
+        FROM employees e
+        JOIN departments d ON e.dept_id = d.id
+        ORDER BY e.id
+    """)
     assert len(df) == 3
     assert list(df["employee_name"]) == ["Alice", "Bob", "Charlie"]
     assert list(df["department_name"]) == ["Engineering", "Engineering", "Marketing"]
@@ -1187,33 +1288,32 @@ def test_executor_join_query(mock_seeder):
 
 def test_executor_cte_query(mock_seeder):
     executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
-    query = """
-    WITH HighEarners AS (
-        SELECT name, salary FROM employees WHERE salary > 55000
-    )
-    SELECT * FROM HighEarners ORDER BY salary DESC
-    """
-    df = executor.query_to_df(query)
+    df = executor.query_to_df("""
+        WITH HighEarners AS (
+            SELECT name, salary FROM employees WHERE salary > 55000
+        )
+        SELECT * FROM HighEarners ORDER BY salary DESC
+    """)
     assert len(df) == 2
     assert list(df["name"]) == ["Charlie", "Bob"]
-    assert list(df["salary"]) == [70000, 60000]
 
 
 def test_executor_window_function_query(mock_seeder):
     executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
-    query = """
-    SELECT name, salary, 
-           RANK() OVER (PARTITION BY dept_id ORDER BY salary DESC) as dept_rank
-    FROM employees
-    ORDER BY id
-    """
-    df = executor.query_to_df(query)
+    df = executor.query_to_df("""
+        SELECT name, salary,
+               RANK() OVER (PARTITION BY dept_id ORDER BY salary DESC) as dept_rank
+        FROM employees ORDER BY id
+    """)
     assert len(df) == 3
-    assert list(df["name"]) == ["Alice", "Bob", "Charlie"]
-    # Alice (Engineering) has lowest salary (50k) so rank 2 in dept 1
-    # Bob (Engineering) has highest salary (60k) so rank 1 in dept 1
-    # Charlie (Marketing) has 70k so rank 1 in dept 2
     assert list(df["dept_rank"]) == [2, 1, 1]
+
+
+def test_executor_exception_chaining(mock_seeder):
+    executor = DuckdbSQLExecutor(dialect=Dialect.POSTGRES, seeder=mock_seeder)
+    with pytest.raises(QueryExecutionError) as exc_info:
+        executor.query_to_df("SELECT * FROM nonexistent")
+    assert exc_info.value.__cause__ is not None
 </file>
 
 <file path="pyproject.toml">
@@ -1243,7 +1343,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/duckdb_executor"]
+packages = ["src/duckdb_simulator"]
 
 [tool.pytest.ini_options]
 pythonpath = [

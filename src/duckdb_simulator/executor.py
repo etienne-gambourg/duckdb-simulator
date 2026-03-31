@@ -1,8 +1,17 @@
 import duckdb
 import pandas as pd
 import sqlglot
+
 from .models import Dialect
 from .seeder import DuckdbSQLSeeder
+
+
+class QueryTranslationError(Exception):
+    """Raised when SQL query translation fails."""
+
+
+class QueryExecutionError(Exception):
+    """Raised when SQL query execution fails."""
 
 
 class DuckdbSQLExecutor:
@@ -21,11 +30,9 @@ class DuckdbSQLExecutor:
             seeder (DuckdbSQLSeeder): An initialized seeder with populated tables.
         """
         try:
-            # Check if dialect is a supported valid Enum, and extract its logic
             self.dialect_enum = Dialect(dialect)
             self.read_dialect = self.dialect_enum.to_sqlglot_dialect(dialect)
         except ValueError:
-            # Fallback to direct string if someone passes a valid sqlglot dialect not in Enum
             self.read_dialect = dialect
 
         self.conn = seeder.get_connection()
@@ -34,22 +41,34 @@ class DuckdbSQLExecutor:
         """
         Translates the given query from the source dialect to duckdb dialect,
         executes it, and returns a pandas DataFrame.
+
+        Args:
+            query (str): SQL query to execute
+
+        Returns:
+            pd.DataFrame: Result of SQL query
+
+        Raises:
+            QueryTranslationError: If query translation fails.
+            QueryExecutionError: If query execution fails.
         """
         try:
-            # Parse the query with the defined read dialect and transpile to duckdb
             translated_query = sqlglot.transpile(
                 query, read=self.read_dialect, write="duckdb"
             )[0]
         except Exception as e:
-            raise ValueError(f"Failed to parse and translate query: {e}")
+            raise QueryTranslationError(
+                f"Failed to parse and translate query: {e}"
+            ) from e
 
         try:
-            # Execute the query using DuckDB's execute method, which supports returning a pandas df directly.
             result = self.conn.execute(translated_query)
             if result is None:
-                raise Exception("Query returned no result object.")
+                raise QueryExecutionError("Query returned no result object.")
             return result.fetchdf()
         except duckdb.Error as e:
-            raise Exception(f"Database execution failed: {e}")
+            raise QueryExecutionError(f"Database execution failed: {e}") from e
         except Exception as e:
-            raise Exception(f"An unexpected error occurred during execution: {e}")
+            raise QueryExecutionError(
+                f"An unexpected error occurred during execution: {e}"
+            ) from e
