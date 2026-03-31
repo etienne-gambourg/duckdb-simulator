@@ -1,6 +1,7 @@
 import pandas as pd
 from typing import Protocol, runtime_checkable
 
+
 @runtime_checkable
 class SQLExecutor(Protocol):
     """
