@@ -1,4 +1,4 @@
-from duckdb_executor.pytest_plugin import (
+from duckdb_simulator.pytest_plugin import (
     full_executor,
     orders_executor,
     products_executor,

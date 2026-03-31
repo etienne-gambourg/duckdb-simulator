@@ -1,10 +1,10 @@
-"""Tests for the duckdb_executor testing toolkit."""
+"""Tests for the duckdb_simulator testing toolkit."""
 
 from __future__ import annotations
 
 import pytest
 
-from duckdb_executor import (
+from duckdb_simulator import (
     DuckdbSQLExecutor,
     DuckdbSQLSeeder,
     Dialect,
@@ -254,7 +254,7 @@ def test_assert_value_types_fails():
 
 
 def test_pytest_plugin_orders_executor():
-    from duckdb_executor.pytest_plugin import orders_executor as _fixture
+    from duckdb_simulator.pytest_plugin import orders_executor as _fixture
 
     assert callable(_fixture)
 

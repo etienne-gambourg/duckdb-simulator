@@ -1,13 +1,13 @@
 """
-duckdb_executor.pytest_plugin
+duckdb_simulator.pytest_plugin
 -----------------------------
 Ready-made pytest fixtures. Register in conftest.py:
 
-    from duckdb_executor.pytest_plugin import *  # noqa: F401, F403
+    from duckdb_simulator.pytest_plugin import *  # noqa: F401, F403
 
 Or selectively:
 
-    from duckdb_executor.pytest_plugin import orders_executor
+    from duckdb_simulator.pytest_plugin import orders_executor
 """
 
 from __future__ import annotations
